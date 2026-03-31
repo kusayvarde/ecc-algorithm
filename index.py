@@ -197,10 +197,6 @@ PAGES = [
 ]
 
 with st.sidebar:
-    st.image(
-        "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Elliptic_curve_simple.svg/400px-Elliptic_curve_simple.svg.png",
-        use_container_width=True,
-    )
     st.title("ECC Navigasyon")
     page = st.radio("Bölüm seç:", PAGES, label_visibility="collapsed")
     st.divider()
