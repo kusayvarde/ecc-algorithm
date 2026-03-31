@@ -204,14 +204,12 @@ with st.sidebar:
     st.title("ECC Navigasyon")
     page = st.radio("Bölüm seç:", PAGES, label_visibility="collapsed")
     st.divider()
-    st.caption("Kriptografi kütüphanesi kullanılmadan\nsıfırdan ECC simülasyonu")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: Giriş
 # ══════════════════════════════════════════════════════════════════════════════
 if page == PAGES[0]:
     st.title("🔐 Eliptik Eğri Kriptografisi (ECC)")
-    st.subheader("Sıfırdan Simülasyon — Kriptografi Kütüphanesi Yok")
 
     st.markdown("""
     Bu uygulama ECC'nin çalışma prensibini **adım adım** göstermektedir.
