@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+
+main.ipynb
+
+main.py
