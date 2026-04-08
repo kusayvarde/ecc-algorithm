@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import hashlib
 import random
+import json
+import os
+from datetime import datetime
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -131,7 +134,7 @@ def generate_keypair():
 
 
 def hash_message(msg: bytes) -> int:
-    return int.from_bytes(hashlib.sha256(msg).digest(), "big")
+    return int.from_bytes(hashlib.sha256(msg).digest(), "big") 
 
 
 def ecdsa_sign(msg: bytes, priv: int):
@@ -167,6 +170,28 @@ def xor_encrypt(data: bytes, key: int) -> bytes:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+_CHAT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chat_state.json")
+
+def _chat_load():
+    if os.path.exists(_CHAT_FILE):
+        try:
+            with open(_CHAT_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"alice": None, "bob": None, "attacker": None, "messages": []}
+
+def _chat_save(state):
+    with open(_CHAT_FILE, "w") as f:
+        json.dump(state, f)
+
+def _pub_to_dict(Q):
+    return {"x": hex(Q[0]), "y": hex(Q[1])}
+
+def _dict_to_pub(d):
+    return (int(d["x"], 16), int(d["y"], 16))
+
+
 def draw_real_curve(ax, a, b, xlim=(-3, 4), ylim=(-6, 6)):
     x = np.linspace(xlim[0], xlim[1], 2000)
     y_sq = x ** 3 + a * x + b
@@ -194,6 +219,7 @@ PAGES = [
     "🛡️  Güvenlik Testi",
     "📊 ECC vs RSA",
     "📨 Tam Senaryo",
+    "💬 Canlı Sohbet",
 ]
 
 with st.sidebar:
@@ -207,28 +233,6 @@ with st.sidebar:
 if page == PAGES[0]:
     st.title("🔐 Eliptik Eğri Kriptografisi (ECC)")
 
-    st.markdown("""
-    Bu uygulama ECC'nin çalışma prensibini **adım adım** göstermektedir.
-    Tüm matematiksel işlemler **sıfırdan Python ile** yazılmıştır.
-
-    ---
-
-    ### Bu uygulamada neler var?
-
-    | # | Bölüm | Açıklama |
-    |---|-------|----------|
-    | 1 | 📐 Eliptik Eğriler | y² = x³ + ax + b eğri ailesi |
-    | 2 | ➕ Nokta Toplama | Geometrik anlam, P+Q ve 2P |
-    | 3 | ✖️ Skaler Çarpım | k×P — interaktif animasyon |
-    | 4 | 🔢 Sonlu Alan | mod p üzerinde nokta dağılımı |
-    | 5 | ⚡ Double-and-Add | Verimli hesaplama algoritması |
-    | 6 | 🔑 Anahtar Üretimi | Tek yönlü fonksiyon |
-    | 7 | 🤝 ECDH | Güvenli anahtar değişimi |
-    | 8 | ✍️ ECDSA | Dijital imza oluşturma ve doğrulama |
-    | 9 | 🛡️ Güvenlik Testi | Manipülasyon denemeleri |
-    | 10 | 📊 ECC vs RSA | Karşılaştırmalı analiz |
-    | 11 | 📨 Tam Senaryo | Alice → Bob güvenli mesaj |
-    """)
 
     st.divider()
     col1, col2, col3 = st.columns(3)
@@ -236,7 +240,6 @@ if page == PAGES[0]:
     col2.metric("RSA denk güvenlik", "3072 bit", "12× daha büyük")
     col3.metric("Double-and-Add adımı", "O(log k)", "Naif: O(k)")
 
-    st.info("Sol menüden bir bölüm seçerek başlayın.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -379,7 +382,7 @@ elif page == PAGES[3]:
 
     k_max = st.slider("Kaç noktaya kadar göster? (k)", 2, 12, 8)
     curve_r = EllipticCurveReal(a=0, b=7)
-    P0 = (-1.0, np.sqrt(6))
+    P0 = (1, np.sqrt(8))
 
     points = {}
     cur = None
@@ -395,7 +398,13 @@ elif page == PAGES[3]:
 
     with col2:
         fig, ax = plt.subplots(figsize=(9, 7))
-        draw_real_curve(ax, 0, 7, xlim=(-3, 5), ylim=(-8, 8))
+        all_xs = [pt[0] for pt in points.values()]
+        all_ys = [pt[1] for pt in points.values()]
+        pad_x = max(1.5, (max(all_xs) - min(all_xs)) * 0.2)
+        pad_y = max(2.0, (max(all_ys) - min(all_ys)) * 0.2)
+        xlim = (min(-3, min(all_xs) - pad_x), max(5, max(all_xs) + pad_x))
+        ylim = (min(-8, min(all_ys) - pad_y), max(8,  max(all_ys) + pad_y))
+        draw_real_curve(ax, 0, 7, xlim=xlim, ylim=ylim)
         ax.set_title(f"Skaler Çarpım: 1P … {k_max}P", fontweight="bold")
 
         colors = plt.cm.plasma(np.linspace(0.1, 0.9, len(points)))
@@ -411,7 +420,6 @@ elif page == PAGES[3]:
         st.pyplot(fig)
         plt.close(fig)
 
-    st.info("Noktalar eğri üzerinde tahmin edilemez bir şekilde 'atlıyor' — bu rastgelelik güvenliği sağlar!")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -757,58 +765,6 @@ elif page == PAGES[8]:
         else:
             st.info("Önce İmzalama sekmesinden bir imza oluşturun.")
 
-    # Akış diyagramı
-    with st.expander("📊 ECDSA Akış Diyagramı"):
-        fig, axes = plt.subplots(1, 2, figsize=(12, 7))
-
-        def fbox(ax, x, y, txt, col="#f0f0ff", w=2.2, h=0.6):
-            r = mpatches.FancyBboxPatch((x - w / 2, y - h / 2), w, h,
-                boxstyle="round,pad=0.08", facecolor=col, edgecolor="#555", lw=1.2)
-            ax.add_patch(r)
-            ax.text(x, y, txt, ha="center", va="center", fontsize=8.5)
-
-        sign_steps = [
-            (2, 8.5, "mesaj (bytes)",        "#ffe0cc"),
-            (2, 7.3, "e = SHA256(mesaj)",    "#fff3cc"),
-            (2, 6.1, "k = rand(1, n−1)",     "#e8f4fd"),
-            (2, 4.9, "R = k × G",            "#e8f4fd"),
-            (2, 3.7, "r = R.x  mod n",       "#e8f4fd"),
-            (2, 2.5, "s = k⁻¹(e+r·d) mod n","#dff0d8"),
-            (2, 1.3, "İmza = (r, s)",        "#d4edda"),
-        ]
-        ax = axes[0]; ax.set_xlim(0, 4); ax.set_ylim(0, 10); ax.axis("off")
-        ax.set_title("İmzalama", fontsize=11, fontweight="bold")
-        for x, y, t, c in sign_steps:
-            fbox(ax, x, y, t, c)
-        for i in range(len(sign_steps) - 1):
-            _, y1, _, _ = sign_steps[i]; _, y2, _, _ = sign_steps[i + 1]
-            ax.annotate("", xy=(2, y2 + 0.3), xytext=(2, y1 - 0.3),
-                        arrowprops=dict(arrowstyle="->", color="#333", lw=1.5))
-        ax.text(0.2, 2.2, "d = özel\nanahtar", fontsize=7.5, color="red", style="italic")
-
-        verify_steps = [
-            (2, 8.5, "mesaj + imza (r,s)",      "#ffe0cc"),
-            (2, 7.3, "e = SHA256(mesaj)",        "#fff3cc"),
-            (2, 6.1, "w = s⁻¹  mod n",          "#e8f4fd"),
-            (2, 4.9, "u₁=e·w, u₂=r·w  mod n",  "#e8f4fd"),
-            (2, 3.7, "Nokta = u₁G + u₂Q",       "#e8f4fd"),
-            (2, 2.5, "Nokta.x  mod n == r?",    "#fff3cc"),
-            (2, 1.3, "GEÇERLİ / GEÇERSİZ",     "#d4edda"),
-        ]
-        ax = axes[1]; ax.set_xlim(0, 4); ax.set_ylim(0, 10); ax.axis("off")
-        ax.set_title("Doğrulama", fontsize=11, fontweight="bold")
-        for x, y, t, c in verify_steps:
-            fbox(ax, x, y, t, c)
-        for i in range(len(verify_steps) - 1):
-            _, y1, _, _ = verify_steps[i]; _, y2, _, _ = verify_steps[i + 1]
-            ax.annotate("", xy=(2, y2 + 0.3), xytext=(2, y1 - 0.3),
-                        arrowprops=dict(arrowstyle="->", color="#333", lw=1.5))
-        ax.text(0.1, 3.4, "Q = açık\nanahtar", fontsize=7.5, color="blue", style="italic")
-
-        fig.suptitle("ECDSA Akış Diyagramı", fontsize=12, fontweight="bold")
-        plt.tight_layout()
-        st.pyplot(fig)
-        plt.close(fig)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -950,99 +906,789 @@ elif page == PAGES[10]:
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == PAGES[11]:
     st.title("📨 Tam Senaryo: Alice → Bob")
-    st.caption("💡 Tüm adımların gerçek bir kullanım senaryosunda bir arada nasıl çalıştığını görmek için.")
-    st.markdown("ECDH + ECDSA birlikte: şifreli **ve** imzalı mesaj gönderimi")
+    st.caption("💡 Şifrelemenin nasıl adım adım inşa edildiğini simüle ederek görmek için.")
 
-    msg_text = st.text_input("Alice'in mesajı:", "Merhaba Bob! Bu tamamen gizli.")
+    # ── session state init ─────────────────────────────────────────────────────
+    if "scen_step" not in st.session_state:
+        st.session_state["scen_step"] = 0
 
-    if st.button("🚀 Senaryoyu Çalıştır", type="primary"):
-        with st.spinner("Hesaplanıyor..."):
+    TOTAL_STEPS = 7
+    step = st.session_state["scen_step"]
+
+    # ── helper: Double-and-Add trace table ─────────────────────────────────────
+    def daa_trace(k, max_show=14):
+        binary = bin(k)[2:]
+        rows = []
+        acc = 0
+        ellipsis_added = False
+        for i, bit in enumerate(binary):
+            if i == 0:
+                acc = 1
+                op = "Başlangıç (bit=1)"
+            else:
+                acc = acc * 2
+                if bit == "1":
+                    acc += 1
+                    op = "Double + Add  (bit=1)"
+                else:
+                    op = "Double        (bit=0)"
+            in_head = i < max_show
+            in_tail = i >= len(binary) - 2
+            if in_head or in_tail:
+                acc_str = (f"{acc}×G" if acc < 10000
+                           else f"{hex(acc)[:10]}...×G")
+                rows.append({"Adım": i + 1, "Bit": bit, "İşlem": op,
+                             "Akümülatör": acc_str})
+            elif not ellipsis_added:
+                rows.append({"Adım": "⋮", "Bit": "⋮",
+                             "İşlem": f"← {len(binary) - max_show - 2} adım daha →",
+                             "Akümülatör": "⋮"})
+                ellipsis_added = True
+        return rows
+
+    # ── progress indicator ─────────────────────────────────────────────────────
+    step_labels = [
+        "Hazırlık", "Alice Anahtar", "Bob Anahtar",
+        "ECDH Ortak Sır", "Şifrele + İmzala", "📡 İletim", "Bob: Çöz + Doğrula",
+    ]
+    prog_cols = st.columns(TOTAL_STEPS)
+    for i, (col, lbl) in enumerate(zip(prog_cols, step_labels)):
+        if i < step:
+            col.markdown(f"<div style='text-align:center;color:#2ecc71;font-size:11px'>✓ {lbl}</div>",
+                         unsafe_allow_html=True)
+        elif i == step:
+            col.markdown(f"<div style='text-align:center;color:#2980b9;font-weight:bold;font-size:11px'>▶ {lbl}</div>",
+                         unsafe_allow_html=True)
+        else:
+            col.markdown(f"<div style='text-align:center;color:#aaa;font-size:11px'>○ {lbl}</div>",
+                         unsafe_allow_html=True)
+    st.progress(step / TOTAL_STEPS)
+    st.divider()
+
+    # ── nav buttons ────────────────────────────────────────────────────────────
+    def nav_buttons(allow_next=True, next_label="İleri ▶"):
+        c1, c2, c3 = st.columns([1, 4, 1])
+        with c1:
+            if step > 0 and st.button("◀ Geri"):
+                st.session_state["scen_step"] -= 1
+                st.rerun()
+        with c3:
+            if allow_next and st.button(next_label, type="primary"):
+                st.session_state["scen_step"] += 1
+                st.rerun()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # STEP 0 — Setup
+    # ══════════════════════════════════════════════════════════════════════════
+    if step == 0:
+        st.subheader("Adım 0 — Hazırlık")
+        st.markdown("Alice'ten Bob'a güvenli mesaj gönderimini **adım adım** simüle eder: anahtar üretimi → ECDH → şifrele + imzala → ilet → çöz + doğrula.")
+
+        msg_input = st.text_input("Alice'in göndereceği mesaj:", "Merhaba Bob! Bu tamamen gizli.")
+        if st.button("🚀 Simülasyonu Başlat", type="primary"):
+            # Pre-compute everything once and store
             a_priv, a_pub = generate_keypair()
             b_priv, b_pub = generate_keypair()
-
-            # ECDH
-            shared_pt_a = SECP256K1.scalar_mult(a_priv, b_pub)
-            shared_pt_b = SECP256K1.scalar_mult(b_priv, a_pub)
+            shared_pt_a   = SECP256K1.scalar_mult(a_priv, b_pub)
+            shared_pt_b   = SECP256K1.scalar_mult(b_priv, a_pub)
             shared_secret = shared_pt_a[0]
+            msg_bytes     = msg_input.encode()
+            encrypted     = xor_encrypt(msg_bytes, shared_secret)
+            sig           = ecdsa_sign(msg_bytes, a_priv)
+            e_hash        = hash_message(msg_bytes)
+            n             = SECP256K1.n
+            # re-derive k for display (sign again with fixed seed for traceability)
+            k_show = random.randint(1, n - 1)
+            R_show = SECP256K1.scalar_mult(k_show, SECP256K1.G)
+            decrypted     = xor_encrypt(encrypted, shared_pt_b[0])
+            sig_ok        = ecdsa_verify(decrypted, sig, a_pub)
 
-            # Şifreleme
-            msg_bytes = msg_text.encode()
-            encrypted = xor_encrypt(msg_bytes, shared_secret)
+            st.session_state["scen_data"] = {
+                "msg": msg_input,
+                "msg_bytes": msg_bytes,
+                "a_priv": a_priv, "a_pub": a_pub,
+                "b_priv": b_priv, "b_pub": b_pub,
+                "shared_secret": shared_secret,
+                "shared_pt_b": shared_pt_b,
+                "encrypted": encrypted,
+                "sig": sig,
+                "e_hash": e_hash,
+                "k_show": k_show,
+                "R_show": R_show,
+                "decrypted": decrypted,
+                "sig_ok": sig_ok,
+            }
+            st.session_state["scen_step"] = 1
+            st.rerun()
 
-            # İmzalama
-            sig = ecdsa_sign(msg_bytes, a_priv)
+    # ══════════════════════════════════════════════════════════════════════════
+    # STEP 1 — Alice key generation
+    # ══════════════════════════════════════════════════════════════════════════
+    elif step == 1:
+        d = st.session_state["scen_data"]
+        st.subheader("Adım 1 — Alice: Anahtar Çifti Üretimi")
 
-            # Bob tarafı
-            decrypted = xor_encrypt(encrypted, shared_pt_b[0])
-            sig_ok = ecdsa_verify(decrypted, sig, a_pub)
+        st.markdown("""
+        **Özel anahtar** `d_A`: `[1, n−1]` aralığından rastgele seçilir.
+        **Açık anahtar** `Q_A`: Double-and-Add algoritmasıyla `Q_A = d_A × G` hesaplanır.
+        """)
 
-        st.divider()
         col1, col2 = st.columns(2)
-
         with col1:
-            st.subheader("👩 Alice")
-            st.markdown("**1. Anahtar üretimi**")
-            st.code(f"d_A = {hex(a_priv)[:25]}...", language="text")
-            st.markdown("**2. ECDH ortak sır**")
-            st.code(f"S = d_A × Q_B\n  = {hex(shared_secret)[:25]}...", language="text")
-            st.markdown("**3. Mesajı XOR şifrele**")
-            st.code(f"Orijinal : {msg_text}\nŞifreli  : {encrypted.hex()[:30]}...", language="text")
-            st.markdown("**4. Mesajı imzala (ECDSA)**")
-            st.code(f"r = {hex(sig[0])[:20]}...\ns = {hex(sig[1])[:20]}...", language="text")
+            st.markdown("#### Özel Anahtar `d_A`")
+            st.code(hex(d["a_priv"]), language="text")
+            binary_d = bin(d["a_priv"])[2:]
+            st.caption(f"{len(binary_d)} bit — ikili: `{binary_d[:16]}...{binary_d[-8:]}`")
 
         with col2:
-            st.subheader("👨 Bob")
-            st.markdown("**5. ECDH ortak sır (aynı)**")
-            st.code(f"S = d_B × Q_A\n  = {hex(shared_pt_b[0])[:25]}...", language="text")
-            st.markdown("**6. Şifreyi çöz**")
-            st.code(f"Çözülen: {decrypted.decode()}", language="text")
-            st.markdown("**7. İmzayı doğrula**")
-            if sig_ok:
-                st.success("✅ İmza GEÇERLİ\nMesaj Alice'ten geldi, değiştirilmedi!")
-            else:
-                st.error("❌ İmza GEÇERSİZ")
+            st.markdown("#### Açık Anahtar `Q_A = d_A × G`")
+            st.code(f"x = {hex(d['a_pub'][0])[:34]}...\ny = {hex(d['a_pub'][1])[:34]}...",
+                    language="text")
+            st.caption("Eğri üzerinde bir nokta — herkese açık paylaşılır")
 
-        # Akış görseli
-        fig, ax = plt.subplots(figsize=(14, 4.5))
-        ax.axis("off"); ax.set_xlim(0, 14); ax.set_ylim(0, 5)
-        steps = [
-            (1,   2.5, "Alice\nAnahtar Çifti\n(d_A, Q_A)",             "#ffcccc"),
-            (3.5, 2.5, "ECDH\nOrtak Sır\nS = d_A × Q_B",              "#fff3cc"),
-            (6,   2.5, "XOR\nŞifreleme\nC = Enc(M, S)",               "#cce5ff"),
-            (8.5, 2.5, "ECDSA\nİmzalama\nσ = Sign(M, d_A)",           "#dff0d8"),
-            (11,  2.5, "Bob\nÇöz + Doğrula\nM=Dec(C,S), Verify(M,σ)", "#e8d5ff"),
+        nav_buttons(next_label="Bob'a geç ▶")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # STEP 2 — Bob key generation
+    # ══════════════════════════════════════════════════════════════════════════
+    elif step == 2:
+        d = st.session_state["scen_data"]
+        st.subheader("Adım 2 — Bob: Anahtar Çifti Üretimi")
+        st.markdown("Bob da aynı süreci **bağımsız** olarak yapar:")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("#### Özel Anahtar `d_B`")
+            st.code(hex(d["b_priv"]), language="text")
+            binary_b = bin(d["b_priv"])[2:]
+            st.caption(f"{len(binary_b)} bit — ikili: `{binary_b[:16]}...{binary_b[-8:]}`")
+
+        with col2:
+            st.markdown("#### Açık Anahtar `Q_B = d_B × G`")
+            st.code(f"x = {hex(d['b_pub'][0])[:34]}...\ny = {hex(d['b_pub'][1])[:34]}...",
+                    language="text")
+
+        st.info("Özel anahtarlar (`d_A`, `d_B`) **hiç kimseyle paylaşılmaz** — yalnızca açık anahtarlar paylaşılır.")
+        nav_buttons(next_label="ECDH'ye geç ▶")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # STEP 3 — ECDH shared secret
+    # ══════════════════════════════════════════════════════════════════════════
+    elif step == 3:
+        d = st.session_state["scen_data"]
+        st.subheader("Adım 3 — ECDH: Ortak Sır Oluşturma")
+
+        st.markdown("""
+        Alice ve Bob **karşılıklı açık anahtarları** kullanarak, **aynı ortak sırrı** bağımsız hesaplar.
+        Gözlemci sadece `Q_A`, `Q_B`, ve `G`'yi bilir — `d_A` veya `d_B`'yi bilemez.
+        """)
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown("#### 👩 Alice hesaplar")
+            st.markdown("`S_A = d_A × Q_B`")
+            st.markdown("Alice kendi özel anahtarıyla Bob'un açık anahtarını çarpar:")
+            st.code(
+                f"d_A = {hex(d['a_priv'])[:18]}...\n"
+                f"Q_B.x = {hex(d['b_pub'][0])[:18]}...\n\n"
+                f"S_A.x = {hex(d['shared_secret'])[:18]}...",
+                language="text"
+            )
+
+        with col2:
+            st.markdown("#### 🌐 Gözlemci görür")
+            st.code(
+                f"G  = (Gx, Gy)  [sabit]\n"
+                f"Q_A.x = {hex(d['a_pub'][0])[:14]}...\n"
+                f"Q_B.x = {hex(d['b_pub'][0])[:14]}...",
+                language="text"
+            )
+            st.error("d_A ve d_B bilinmeden\nS hesaplanamaz!")
+
+        with col3:
+            st.markdown("#### 👨 Bob hesaplar")
+            st.markdown("`S_B = d_B × Q_A`")
+            st.markdown("Bob kendi özel anahtarıyla Alice'in açık anahtarını çarpar:")
+            st.code(
+                f"d_B = {hex(d['b_priv'])[:18]}...\n"
+                f"Q_A.x = {hex(d['a_pub'][0])[:18]}...\n\n"
+                f"S_B.x = {hex(d['shared_pt_b'][0])[:18]}...",
+                language="text"
+            )
+
+        match = d["shared_secret"] == d["shared_pt_b"][0]
+        if match:
+            st.success(f"✅ S_A.x == S_B.x  →  Ortak sır eşleşiyor!\n`{hex(d['shared_secret'])[:40]}...`")
+        else:
+            st.error("❌ Eşleşme başarısız!")
+
+        nav_buttons(next_label="Şifrele + İmzala ▶")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # STEP 4 — Encrypt + Sign
+    # ══════════════════════════════════════════════════════════════════════════
+    elif step == 4:
+        d = st.session_state["scen_data"]
+        st.subheader("Adım 4 — Alice: Şifrele + İmzala")
+
+        tab_enc, tab_sign = st.tabs(["🔒 XOR Şifreleme", "✍️ ECDSA İmzalama"])
+
+        with tab_enc:
+            st.markdown("""
+            **Ortak sır → şifreleme anahtarı**
+            Paylaşılan `S.x` değeri 32-byte'a dönüştürülür ve mesaj XOR ile şifrelenir.
+            """)
+            msg_bytes = d["msg_bytes"]
+            key_bytes = d["shared_secret"].to_bytes(32, "big")
+            enc_bytes = d["encrypted"]
+
+            st.markdown("**Byte-byte şifreleme (ilk 8 byte):**")
+            xor_rows = []
+            for i in range(min(8, len(msg_bytes))):
+                m = msg_bytes[i]
+                k = key_bytes[i % 32]
+                c = enc_bytes[i]
+                xor_rows.append({
+                    "Byte #": i,
+                    "Mesaj (M)": f"{m:3d} = {m:08b}",
+                    "Anahtar (K)": f"{k:3d} = {k:08b}",
+                    "XOR (C=M⊕K)": f"{c:3d} = {c:08b}",
+                })
+            st.dataframe(xor_rows, use_container_width=True, hide_index=True)
+            st.code(
+                f"Orijinal mesaj : {d['msg']}\n"
+                f"Şifreli (hex)  : {enc_bytes.hex()}",
+                language="text"
+            )
+            st.caption("XOR her biti tersine çevirir — anahtar olmadan orijinal mesaj okunamaz.")
+
+        with tab_sign:
+            st.markdown("""
+            **ECDSA İmzalama adımları:**
+
+            1. `e = SHA256(mesaj)` → mesajın hash'i
+            2. `k` = rastgele nonce  `[1, n−1]`
+            3. `R = k × G`  → eğri üzerinde rastgele nokta (Double-and-Add!)
+            4. `r = R.x mod n`
+            5. `s = k⁻¹ × (e + r × d_A)  mod n`
+            """)
+            n = SECP256K1.n
+            e_h = d["e_hash"]
+            k_s = d["k_show"]
+            R_s = d["R_show"]
+            r_s, s_s = d["sig"]
+
+            st.markdown("**Hesaplama izleme:**")
+            sign_rows = [
+                {"İşlem": "e = SHA256(mesaj)",        "Değer": hex(e_h)[:30] + "..."},
+                {"İşlem": "k = rastgele nonce",       "Değer": hex(k_s)[:30] + "..."},
+                {"İşlem": "R = k × G  (Double-and-Add)", "Değer": f"({hex(R_s[0])[:16]}..., {hex(R_s[1])[:16]}...)"},
+                {"İşlem": "r = R.x mod n",            "Değer": hex(r_s)[:30] + "..."},
+                {"İşlem": "s = k⁻¹(e + r·d_A) mod n","Değer": hex(s_s)[:30] + "..."},
+                {"İşlem": "İmza σ = (r, s)",          "Değer": "✅ hazır"},
+            ]
+            st.dataframe(sign_rows, use_container_width=True, hide_index=True)
+
+            with st.expander("k → R = k×G  Double-and-Add izleme (nonce noktası)"):
+                trace_k = daa_trace(k_s)
+                st.dataframe(trace_k, use_container_width=True, hide_index=True)
+                st.caption("Bu iz, nonce k'dan R = k×G noktasının nasıl birikimli oluşturulduğunu gösterir.")
+
+        nav_buttons(next_label="İletim ▶")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # STEP 5 — Transmission
+    # ══════════════════════════════════════════════════════════════════════════
+    elif step == 5:
+        d = st.session_state["scen_data"]
+        st.subheader("Adım 5 — 📡 Mesaj İletimi")
+
+        st.markdown("""
+        Alice, hazırladığı paketi güvensiz kanal üzerinden Bob'a gönderir.
+        Paketin içeriği:
+        """)
+
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            st.markdown("#### 📦 Alice'in gönderdiği paket")
+            st.code(
+                f"┌─────────────────────────────────┐\n"
+                f"│  Şifreli Mesaj (C)              │\n"
+                f"│  {d['encrypted'].hex()[:28]}...  │\n"
+                f"│                                 │\n"
+                f"│  İmza σ = (r, s)                │\n"
+                f"│  r = {hex(d['sig'][0])[:20]}...  │\n"
+                f"│  s = {hex(d['sig'][1])[:20]}...  │\n"
+                f"│                                 │\n"
+                f"│  Alice'in Açık Anahtarı Q_A     │\n"
+                f"│  x = {hex(d['a_pub'][0])[:20]}...│\n"
+                f"└─────────────────────────────────┘",
+                language="text"
+            )
+
+        with col2:
+            st.markdown("#### 🕵️ Gözlemci ne görebilir?")
+            st.warning(
+                "Gözlemci paketi yakalasa bile:\n\n"
+                "- `C` şifreli → orijinal mesaj okunamaz\n"
+                "- `σ` imza → Alice olmadan taklit edilemez\n"
+                "- `S` ortak sır → `d_A` veya `d_B` bilinmeden hesaplanamaz\n\n"
+                "**ECDLP** (Ayrık Logaritma Problemi) bunu korur."
+            )
+
+        # Flow diagram
+        fig, ax = plt.subplots(figsize=(13, 3.5))
+        ax.axis("off"); ax.set_xlim(0, 13); ax.set_ylim(0, 4)
+        flow = [
+            (1.2, 2, "👩 Alice\n(C, σ, Q_A)", "#ffcccc"),
+            (4.5, 2, "📡 Kanal\n(C, σ, Q_A\ngörünür)", "#fff3cc"),
+            (7.8, 2, "🕵️ Gözlemci\nS bilinmiyor\norijinal okunamaz", "#ffeedd"),
+            (11,  2, "👨 Bob\n(C, σ, Q_A\nalır)", "#cce5ff"),
         ]
-        for x, y, txt, col in steps:
-            r = mpatches.FancyBboxPatch((x - 1, y - 1), 2, 2,
-                boxstyle="round,pad=0.1", facecolor=col, edgecolor="gray", lw=1.5)
+        for x, y, txt, fc in flow:
+            r = mpatches.FancyBboxPatch((x - 1.1, y - 0.9), 2.2, 1.8,
+                boxstyle="round,pad=0.1", facecolor=fc, edgecolor="gray", lw=1.4)
             ax.add_patch(r)
-            ax.text(x, y, txt, ha="center", va="center", fontsize=8.5)
-        for i in range(len(steps) - 1):
-            x1 = steps[i][0] + 1; x2 = steps[i + 1][0] - 1
-            ax.annotate("", xy=(x2, 2.5), xytext=(x1, 2.5),
+            ax.text(x, y, txt, ha="center", va="center", fontsize=9)
+        for i in range(len(flow) - 1):
+            x1 = flow[i][0] + 1.1; x2 = flow[i + 1][0] - 1.1
+            ax.annotate("", xy=(x2, 2), xytext=(x1, 2),
                         arrowprops=dict(arrowstyle="->", color="#333", lw=2))
-        ax.set_title("ECC ile Güvenli Mesajlaşma — Tam Akış", fontsize=13, fontweight="bold")
+        ax.set_title("Güvensiz Kanal Üzerinden İletim", fontsize=11, fontweight="bold")
         plt.tight_layout()
         st.pyplot(fig)
         plt.close(fig)
 
-    else:
-        st.info("Mesajı girin ve 'Senaryoyu Çalıştır' düğmesine basın.")
+        nav_buttons(next_label="Bob'a geç ▶")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # STEP 6 — Bob decrypts and verifies
+    # ══════════════════════════════════════════════════════════════════════════
+    elif step == 6:
+        d = st.session_state["scen_data"]
+        st.subheader("Adım 6 — Bob: Şifre Çözme + İmza Doğrulama")
+
+        tab_dec, tab_ver = st.tabs(["🔓 Şifre Çözme", "🔍 İmza Doğrulama"])
+
+        with tab_dec:
+            st.markdown("""
+            Bob kendi ortak sırrını (`S_B = d_B × Q_A`) kullanarak şifreyi çözer:
+            """)
+            n = SECP256K1.n
+            dec_rows = [
+                {"İşlem": "d_B × Q_A  (Double-and-Add)", "Değer": hex(d["shared_pt_b"][0])[:30] + "..."},
+                {"İşlem": "S_B.x (= S_A.x?)",           "Değer": ("✅ Eşit" if d["shared_secret"] == d["shared_pt_b"][0] else "❌ Farklı")},
+                {"İşlem": "C XOR S_B.x  (bytes)",       "Değer": d["decrypted"].decode(errors="replace")},
+            ]
+            st.dataframe(dec_rows, use_container_width=True, hide_index=True)
+            st.success(f"Çözülen mesaj: **{d['decrypted'].decode(errors='replace')}**")
+
+        with tab_ver:
+            r_v, s_v = d["sig"]
+            e_v = hash_message(d["decrypted"])
+            w_v = pow(s_v, n - 2, n)
+            u1_v = e_v * w_v % n
+            u2_v = r_v * w_v % n
+            pt_v = SECP256K1.add(
+                SECP256K1.scalar_mult(u1_v, SECP256K1.G),
+                SECP256K1.scalar_mult(u2_v, d["a_pub"]),
+            )
+            check = pt_v is not None and pt_v[0] % n == r_v
+
+            ver_rows = [
+                {"İşlem": "e = SHA256(mesaj)",      "Değer": hex(e_v)[:28] + "..."},
+                {"İşlem": "w = s⁻¹ mod n",          "Değer": hex(w_v)[:28] + "..."},
+                {"İşlem": "u₁ = e·w mod n",         "Değer": hex(u1_v)[:28] + "..."},
+                {"İşlem": "u₂ = r·w mod n",         "Değer": hex(u2_v)[:28] + "..."},
+                {"İşlem": "Nokta = u₁G + u₂·Q_A",  "Değer": f"({hex(pt_v[0])[:14]}..., ...)" if pt_v else "∞"},
+                {"İşlem": "Nokta.x mod n",          "Değer": hex(pt_v[0] % n)[:28] + "..." if pt_v else "—"},
+                {"İşlem": "== r?",                  "Değer": "✅ EVET — GEÇERLİ" if check else "❌ HAYIR — GEÇERSİZ"},
+            ]
+            st.dataframe(ver_rows, use_container_width=True, hide_index=True)
+
+            if d["sig_ok"]:
+                st.success("✅ İmza GEÇERLİ — Mesaj Alice'ten geldi ve değiştirilmedi!")
+            else:
+                st.error("❌ İmza GEÇERSİZ!")
+
+        st.divider()
+        st.markdown("#### Simülasyon Özeti")
+        summary_cols = st.columns(4)
+        summary_cols[0].metric("Alice Özel Anahtar", f"{d['a_priv'].bit_length()} bit", "d_A gizli kalır")
+        summary_cols[1].metric("Ortak Sır", "256 bit", "S kimseyle paylaşılmaz")
+        summary_cols[2].metric("Şifreli Paket", f"{len(d['encrypted'])} byte", "XOR + ECDSA")
+        summary_cols[3].metric("Doğrulama", "✅ Başarılı" if d["sig_ok"] else "❌ Başarısız", "ECDSA verify")
+
+        # Final flow diagram
+        fig, ax = plt.subplots(figsize=(14, 4.5))
+        ax.axis("off"); ax.set_xlim(0, 14); ax.set_ylim(0, 5)
+        final_steps = [
+            (1.2, 2.5, "Alice\nd_A, Q_A\n(Anahtar Üretimi)",        "#ffcccc"),
+            (3.8, 2.5, "ECDH\nS = d_A×Q_B\n= d_B×Q_A",             "#fff3cc"),
+            (6.4, 2.5, "Şifrele\nC = M ⊕ S\n(XOR)",                "#cce5ff"),
+            (9.0, 2.5, "İmzala\nσ = ECDSA\n(d_A, M)",              "#dff0d8"),
+            (11.8, 2.5, "Bob\nÇöz + Doğrula\n✅",                   "#e8d5ff"),
+        ]
+        for x, y, txt, fc in final_steps:
+            r = mpatches.FancyBboxPatch((x - 1.1, y - 1.1), 2.2, 2.2,
+                boxstyle="round,pad=0.1", facecolor=fc, edgecolor="gray", lw=1.5)
+            ax.add_patch(r)
+            ax.text(x, y, txt, ha="center", va="center", fontsize=8.5)
+        for i in range(len(final_steps) - 1):
+            x1 = final_steps[i][0] + 1.1; x2 = final_steps[i + 1][0] - 1.1
+            ax.annotate("", xy=(x2, 2.5), xytext=(x1, 2.5),
+                        arrowprops=dict(arrowstyle="->", color="#333", lw=2))
+        ax.set_title("ECC ile Güvenli Mesajlaşma — Tam Simülasyon Akışı",
+                     fontsize=13, fontweight="bold")
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close(fig)
+
+        c1, _, c3 = st.columns([1, 4, 1])
+        with c1:
+            if st.button("◀ Geri"):
+                st.session_state["scen_step"] -= 1
+                st.rerun()
+        with c3:
+            if st.button("🔄 Yeniden Başlat"):
+                st.session_state["scen_step"] = 0
+                if "scen_data" in st.session_state:
+                    del st.session_state["scen_data"]
+                st.rerun()
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: Canlı Sohbet
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == PAGES[12]:
+    st.title("💬 Canlı Sohbet — Alice ↔ Bob")
+    st.caption("İki taraf iki ayrı sekmede bu sayfayı açar, birbirlerine şifreli mesaj gönderir.")
+
+    # ── helpers ────────────────────────────────────────────────────────────────
+    def _connect(role):
+        """Register this tab as `role`, generate key pair, publish public key."""
+        priv, pub = generate_keypair()
+        st.session_state["chat_role"]  = role
+        st.session_state["chat_priv"]  = priv
+        st.session_state["chat_pub"]   = pub
+        state = _chat_load()
+        state[role] = _pub_to_dict(pub)
+        _chat_save(state)
+
+    def _other(role):
+        return "bob" if role == "alice" else "alice"
+
+    def _role_label(role):
+        if role == "alice":    return "👩 Alice"
+        elif role == "bob":    return "👨 Bob"
+        else:                  return "🦹 Saldırıcı"
+
+    def _shared_secret(priv, other_pub_dict):
+        other_pub = _dict_to_pub(other_pub_dict)
+        pt = SECP256K1.scalar_mult(priv, other_pub)
+        return pt[0]   # x-coordinate as shared secret
+
+    def _send(role, priv, shared, text):
+        msg_bytes = text.encode()
+        encrypted = xor_encrypt(msg_bytes, shared)
+        sig       = ecdsa_sign(msg_bytes, priv)
+        state     = _chat_load()
+        state["messages"].append({
+            "from":      role,
+            "plain":     text,
+            "enc_hex":   encrypted.hex(),
+            "sig_r":     hex(sig[0]),
+            "sig_s":     hex(sig[1]),
+            "ts":        datetime.now().strftime("%H:%M:%S"),
+        })
+        _chat_save(state)
+
+    def _verify_and_decrypt(msg_rec, shared, sender_pub_dict):
+        enc   = bytes.fromhex(msg_rec["enc_hex"])
+        plain = xor_encrypt(enc, shared).decode(errors="replace")
+        if sender_pub_dict is None:
+            return plain, False
+        sig = (int(msg_rec["sig_r"], 16), int(msg_rec["sig_s"], 16))
+        ok  = ecdsa_verify(plain.encode(), sig, _dict_to_pub(sender_pub_dict))
+        return plain, ok
+
+    # ── role selection ─────────────────────────────────────────────────────────
+    if "chat_role" not in st.session_state:
+        st.markdown("### Bu sekme kim?")
+        st.markdown("Alice ve Bob güvenli iletişim kurar. Saldırıcı ise kanalı dinleyip saldırı dener.")
+        col_a, col_b, col_e = st.columns(3)
+        with col_a:
+            if st.button("👩 Alice olarak bağlan", type="primary", use_container_width=True):
+                _connect("alice"); st.rerun()
+        with col_b:
+            if st.button("👨 Bob olarak bağlan", type="primary", use_container_width=True):
+                _connect("bob"); st.rerun()
+        with col_e:
+            if st.button("🦹 Saldırıcı ol", use_container_width=True):
+                _connect("attacker"); st.rerun()
+        st.stop()
+
+    # ── already connected ──────────────────────────────────────────────────────
+    role  = st.session_state["chat_role"]
+    priv  = st.session_state["chat_priv"]
+    pub   = st.session_state["chat_pub"]
+
+    state = _chat_load()
+
+    if state.get(role) is None:
+        state[role] = _pub_to_dict(pub)
+        _chat_save(state)
+
+    # ── status bar ─────────────────────────────────────────────────────────────
+    alice_ok    = state.get("alice")    is not None
+    bob_ok      = state.get("bob")      is not None
+    attacker_ok = state.get("attacker") is not None
+
+    sc1, sc2, sc3, sc4, sc5 = st.columns([2, 2, 2, 2, 1])
+    with sc1:
+        if alice_ok:
+            st.success("👩 Alice — bağlı")
+        else:
+            st.warning("👩 Alice — bekleniyor")
+    with sc2:
+        if bob_ok:
+            st.success("👨 Bob — bağlı")
+        else:
+            st.warning("👨 Bob — bekleniyor")
+    with sc3:
+        if attacker_ok:
+            st.error("🦹 Eve — kanalda!")
+        else:
+            st.info("🦹 Eve — yok")
+    with sc4:
+        st.info(f"Mesaj sayısı: {len(state['messages'])}")
+    with sc5:
+        if st.button("🔄 Yenile"): st.rerun()
 
     st.divider()
-    st.markdown("""
-    ### Özet
 
-    | Kavram | Açıklama |
-    |--------|----------|
-    | **Eliptik Eğri** | y² = x³ + ax + b — özel cebirsel yapı |
-    | **Nokta Toplama** | Geometrik işlem, deterministic |
-    | **Skaler Çarpım** | k × P — hızlı hesaplanır |
-    | **ECDLP** | k×P'den k bulmak imkânsız |
-    | **Özel Anahtar** | Rastgele d (gizli) |
-    | **Açık Anahtar** | Q = d × G (herkese açık) |
-    | **ECDH** | Güvensiz kanalda ortak sır |
-    | **ECDSA** | Mesaj bütünlüğü + kimlik doğrulama |
+    # ══════════════════════════════════════════════════════════════════════════
+    # ATTACKER VIEW
+    # ══════════════════════════════════════════════════════════════════════════
+    if role == "attacker":
+        st.subheader("🦹 Saldırıcı — Saldırgan Paneli")
 
-    **Gerçek hayat kullanımı:** Bitcoin/Ethereum, TLS 1.3 (HTTPS), SSH, Signal, WhatsApp
-    """)
+        tab_spy, tab_forge, tab_brute = st.tabs(["👁️ Kanal Dinleme", "✉️ Mesaj Sahteciliği", "💥 Kaba Kuvvet"])
+
+        with tab_spy:
+            st.markdown("#### Kanaldan topladığın bilgiler")
+            spy1, spy2 = st.columns(2)
+            with spy1:
+                st.markdown("**Açık Anahtarlar (herkese görünür)**")
+                if alice_ok:
+                    apd = state["alice"]
+                    st.code(f"Q_A.x = {apd['x'][:24]}...\nQ_A.y = {apd['y'][:24]}...", language="text")
+                else:
+                    st.warning("Alice henüz bağlanmadı.")
+                if bob_ok:
+                    bpd = state["bob"]
+                    st.code(f"Q_B.x = {bpd['x'][:24]}...\nQ_B.y = {bpd['y'][:24]}...", language="text")
+                else:
+                    st.warning("Bob henüz bağlanmadı.")
+            with spy2:
+                st.markdown("**Bildiklerin vs. bilmediklerin**")
+                st.success("✅ Q_A, Q_B — açık anahtarlar")
+                st.success("✅ G — sabit generator")
+                st.success("✅ Şifreli mesajlar (hex)")
+                st.error("❌ d_A, d_B — ECDLP çözülemez")
+                st.error("❌ S = d_A × d_B × G — ortak sır")
+
+            st.divider()
+            st.markdown("#### Şifreli mesajları okuma denemesi")
+            msgs = state.get("messages", [])
+            if not msgs:
+                st.info("Kanalda henüz mesaj yok.")
+            else:
+                for m in msgs:
+                    if m.get("forged"):
+                        st.markdown(f"**[KENDİ SAHTECİLİĞİN]** `{m['ts']}` → `{m['enc_hex'][:48]}...`")
+                        continue
+                    sender = "👩 Alice" if m["from"] == "alice" else "👨 Bob"
+                    st.markdown(f"**{sender}** `{m['ts']}` → `{m['enc_hex'][:48]}...`")
+                    with st.expander(f"🔓 Çözme denemesi — {m['ts']}"):
+                        fake_secret = int(hashlib.sha256(b"eve_fake").hexdigest(), 16)
+                        garbled = xor_encrypt(bytes.fromhex(m["enc_hex"]), fake_secret).decode(errors="replace")
+                        st.error(f"Yanlış anahtarla çözülen: `{garbled}`")
+                        st.caption("Ortak sır S bilinmeden doğru çözüm imkânsız.")
+
+        with tab_forge:
+            st.markdown("#### Alice'miş gibi sahte mesaj gönder")
+            st.warning("Mesaj Alice'in **d_A** özel anahtarı olmadan imzalanacak → Bob'da ❌ görünecek.")
+            if not (alice_ok and bob_ok):
+                st.info("Alice ve Bob'un ikisi de bağlı olmalı.")
+            else:
+                forge_msg = st.text_input("Sahte mesaj:", value="Bob, tüm parayı Saldırıcı'e gönder!")
+                if st.button("🚀 Sahte Mesaj Gönder (Alice gibi)", type="primary"):
+                    msg_b      = forge_msg.encode()
+                    sig_e      = ecdsa_sign(msg_b, priv)          # signed with Saldırıcı's key, NOT Alice's
+                    fake_key   = random.randint(1, SECP256K1.n - 1)
+                    enc_fake   = xor_encrypt(msg_b, fake_key)     # encrypted with wrong key
+                    s = _chat_load()
+                    s["messages"].append({
+                        "from":    "alice",
+                        "plain":   forge_msg,
+                        "enc_hex": enc_fake.hex(),
+                        "sig_r":   hex(sig_e[0]),
+                        "sig_s":   hex(sig_e[1]),
+                        "ts":      datetime.now().strftime("%H:%M:%S"),
+                        "forged":  True,
+                    })
+                    _chat_save(s)
+                    st.success("Gönderildi! Bob sekmesini yenile — ❌ SAHTE olarak görünecek.")
+                    st.rerun()
+
+                st.divider()
+                st.markdown("""
+                **Neden başarısız?**
+                - Bob imzayı **Q_A** ile doğrular → sig **d_E** ile yapıldı → ❌
+                - Şifre **yanlış key** ile yapıldı → çözünce anlamsız metin
+                """)
+
+        with tab_brute:
+            st.markdown("#### Özel Anahtarı Kaba Kuvvetle Bulmaya Çalış")
+            st.error("Gerçek secp256k1'de tamamen imkânsız — bu sadece küçük sayılarla demo.")
+            if alice_ok:
+                apd    = state["alice"]
+                a_pt   = _dict_to_pub(apd)
+                tries  = st.slider("Kaç k dene?", 10, 1000, 200)
+                if st.button("💥 Brute Force Başlat"):
+                    found = None
+                    for k in range(1, tries + 1):
+                        if SECP256K1.scalar_mult(k, SECP256K1.G) == a_pt:
+                            found = k; break
+                    if found:
+                        st.success(f"Bulundu: d_A = {found}  (gerçek d_A 256-bit — bu sadece şansa bağlı!)")
+                    else:
+                        st.error(f"{tries} denemede bulunamadı.")
+                        st.caption(f"Gerçek uzayda ~10⁷⁷ olasılık var. 10⁹/sn hızla: ~10⁶⁸ yıl.")
+            else:
+                st.info("Alice bağlı değil.")
+
+        st.divider()
+        if st.button("🚪 Saldırıyı Bitir / Bağlantıyı Kes"):
+            s = _chat_load(); s["attacker"] = None; _chat_save(s)
+            del st.session_state["chat_role"]
+            del st.session_state["chat_priv"]
+            del st.session_state["chat_pub"]
+            st.rerun()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ALICE / BOB VIEW
+    # ══════════════════════════════════════════════════════════════════════════
+    else:
+        other          = _other(role)
+        other_pub_dict = state.get(other)
+        connected      = other_pub_dict is not None
+
+        with st.expander("🔑 Anahtar bilgileri"):
+            k1, k2 = st.columns(2)
+            with k1:
+                st.markdown(f"**{_role_label(role)} — Benim anahtarlarım**")
+                st.code(
+                    f"Özel (d): {hex(priv)[:20]}...\n"
+                    f"Açık  (x): {hex(pub[0])[:20]}...\n"
+                    f"Açık  (y): {hex(pub[1])[:20]}...",
+                    language="text"
+                )
+            with k2:
+                if connected:
+                    other_pub = _dict_to_pub(other_pub_dict)
+                    shared    = _shared_secret(priv, other_pub_dict)
+                    st.markdown(f"**{_role_label(other)} — Karşı tarafın açık anahtarı**")
+                    st.code(
+                        f"Açık  (x): {hex(other_pub[0])[:20]}...\n"
+                        f"Açık  (y): {hex(other_pub[1])[:20]}...\n\n"
+                        f"ECDH Ortak Sır:\n{hex(shared)[:30]}...",
+                        language="text"
+                    )
+                else:
+                    st.info("Diğer taraf bağlandığında ortak sır hesaplanacak.")
+
+        if not connected:
+            st.info(f"Diğer sekmede **{_role_label(other)}** olarak bağlanılmasını bekliyor… "
+                    "Bağlandıktan sonra 🔄 Yenile butonuna bas.")
+        else:
+            shared = _shared_secret(priv, other_pub_dict)
+            msgs   = state.get("messages", [])
+
+            if not msgs:
+                st.markdown("_Henüz mesaj yok. İlk mesajı gönder!_")
+            else:
+                for m in msgs:
+                    sender_is_me = m["from"] == role
+                    is_forged    = m.get("forged", False)
+                    align_style  = "margin-left:auto" if sender_is_me else "margin-right:auto"
+
+                    if is_forged:
+                        bg_color     = "#3d0000"
+                        sender_label = "👩 Alice ⚠️ [SAHTECİLİK ŞÜPHESİ]"
+                    else:
+                        bg_color     = "#d4f0d4" if sender_is_me else "#d4e4f0"
+                        sender_label = _role_label(m["from"])
+
+                    sender_pub_dict = state.get(m["from"])
+                    plain, sig_ok   = _verify_and_decrypt(m, shared, sender_pub_dict)
+
+                    if is_forged:
+                        sig_badge  = "❌ İMZA GEÇERSİZ — SAHTE MESAJ TESPİT EDİLDİ"
+                        sig_color  = "#ff4444"
+                        plain_show = "[ŞİFRE ÇÖZÜLEMEZ — yanlış anahtar]"
+                    else:
+                        sig_badge  = "✅ İmza geçerli" if sig_ok else "❌ İmza geçersiz"
+                        sig_color  = "#2ecc71" if sig_ok else "#e74c3c"
+                        plain_show = plain
+
+                    st.markdown(f"""
+<div style="max-width:70%;{align_style};background:{bg_color};border-radius:12px;
+     padding:10px 14px;margin:6px 0;">
+  <div style="font-size:12px;color:#aaa;margin-bottom:4px;">
+    {sender_label} &nbsp;·&nbsp; {m['ts']}
+  </div>
+  <div style="font-size:16px;margin-bottom:6px;"><b>{plain_show}</b></div>
+  <span style="font-size:11px;color:{sig_color}">{sig_badge}</span>
+</div>""", unsafe_allow_html=True)
+
+                    with st.expander(f"🔬 Detaylar — {m['ts']}", expanded=False):
+                        d1, d2 = st.columns(2)
+                        with d1:
+                            st.markdown("**Şifreli (hex)**")
+                            st.code(m["enc_hex"], language="text")
+                        with d2:
+                            st.markdown("**ECDSA İmza (r, s)**")
+                            st.code(f"r = {m['sig_r'][:24]}...\ns = {m['sig_s'][:24]}...", language="text")
+
+            st.divider()
+            with st.form("send_form", clear_on_submit=True):
+                inp_col, btn_col = st.columns([5, 1])
+                with inp_col:
+                    msg_input = st.text_input(
+                        "Mesajını yaz:",
+                        placeholder=f"{_role_label(role)} olarak mesaj gönder…",
+                        label_visibility="collapsed"
+                    )
+                with btn_col:
+                    send = st.form_submit_button("Gönder 📤", use_container_width=True)
+
+            if send and msg_input.strip():
+                _send(role, priv, shared, msg_input.strip())
+                st.rerun()
+
+        st.divider()
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("🔄 Sohbeti Sıfırla"):
+                s = _chat_load(); s["messages"] = []; _chat_save(s); st.rerun()
+        with c2:
+            if st.button("🚪 Rolü Değiştir / Bağlantıyı Kes"):
+                s = _chat_load(); s[role] = None; _chat_save(s)
+                del st.session_state["chat_role"]
+                del st.session_state["chat_priv"]
+                del st.session_state["chat_pub"]
+                st.rerun()
